@@ -164,7 +164,7 @@ func (rafty *Rafty) Vote() error {
 func (rafty *Rafty) Heartbeat() error {
 	log.Println("Connected nodes: ", len(rafty.Nodes))
 	for _, node := range rafty.Nodes {
-		log.Printf("Hello %d", node.ID)
+		log.Printf("Data: %d", node.ID)
 		_, err := node.client.Heartbeat(context.Background(), &pb.HeartbeatRequest{Data: "test"})
 		if err != nil {
 			log.Printf("Dead node: %d - %v", node.ID, err)
