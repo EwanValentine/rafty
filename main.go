@@ -35,7 +35,7 @@ const (
 
 // Node
 type Node struct {
-	ID         int32
+	ID         int
 	Host       string
 	Attributes map[string]string
 	Status     string
@@ -54,7 +54,7 @@ type Rafty struct {
 
 type RaftServer interface {
 	Start(host string)
-	AddNode(node Node) error
+	AddNode(node Node) (Node, error)
 	Vote() error
 	Heartbeat() error
 }
@@ -96,14 +96,12 @@ func (rafty *Rafty) Start(host string) {
 
 // Join -
 func (rafty *Rafty) Join(host, leader string) error {
-	err := rafty.AddNode(Node{Host: leader})
+	_, err := rafty.AddNode(Node{Host: leader})
 	if err != nil {
 		return err
 	}
 
 	log.Printf("Connecting to leader: %s", leader)
-
-	log.Println(rafty.Nodes[0].client)
 
 	resp, err := rafty.Nodes[0].client.Join(context.Background(), &pb.JoinRequest{Host: host})
 	if err != nil {
@@ -115,18 +113,18 @@ func (rafty *Rafty) Join(host, leader string) error {
 }
 
 // AddNode -
-func (rafty *Rafty) AddNode(node Node) error {
+func (rafty *Rafty) AddNode(node Node) (Node, error) {
 
 	// This isn't sufficient, we need to update all other nodes as well
 	rafty.mutex.Lock()
 
-	log.Println(node)
-
 	// Form a connection to the new node
 	conn, err := grpc.Dial(node.Host, grpc.WithInsecure())
 	if err != nil {
-		return err
+		return node, err
 	}
+
+	node.ID = len(rafty.Nodes)
 
 	// We need to run conn.Close() when that node dies
 	// or is removed somehow
@@ -135,7 +133,8 @@ func (rafty *Rafty) AddNode(node Node) error {
 	node.client = pb.NewRaftyClient(conn)
 	rafty.Nodes = append(rafty.Nodes, node)
 	rafty.mutex.Unlock()
-	return nil
+
+	return node, nil
 }
 
 // Vote -
@@ -161,12 +160,11 @@ func (rafty *Rafty) Vote() error {
 	return nil
 }
 
-// Heartbeat -
+// Heartbeat - poll all connected nodes with data
 func (rafty *Rafty) Heartbeat() error {
-	log.Println("Node count: ", len(rafty.Nodes))
+	log.Println("Connected nodes: ", len(rafty.Nodes))
 	for _, node := range rafty.Nodes {
 		log.Printf("Hello %d", node.ID)
-		log.Println(node.client)
 		_, err := node.client.Heartbeat(context.Background(), &pb.HeartbeatRequest{Data: "test"})
 		if err != nil {
 			log.Printf("Dead node: %d - %v", node.ID, err)
@@ -214,8 +212,8 @@ type server struct {
 }
 
 func (s *server) Join(ctx context.Context, req *pb.JoinRequest) (*pb.JoinResponse, error) {
-	err := s.rafty.AddNode(Node{ID: 1, Host: req.Host})
-	return &pb.JoinResponse{Id: 1}, err
+	node, err := s.rafty.AddNode(Node{Host: req.Host})
+	return &pb.JoinResponse{Id: int32(node.ID)}, err
 }
 
 func (s *server) List(ctx context.Context, req *pb.ListRequest) (*pb.ListResponse, error) {
