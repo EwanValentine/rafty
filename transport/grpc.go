@@ -13,7 +13,7 @@ type server struct {
 
 func (s *server) Join(ctx context.Context, req *pb.JoinRequest) (*pb.JoinResponse, error) {
 	node, err := s.rafty.AddNode(Node{Host: req.Host})
-	return &pb.JoinResponse{Id: int32(node.ID)}, err
+	return &pb.JoinResponse{Id: node.ID}, err
 }
 
 func (s *server) List(ctx context.Context, req *pb.ListRequest) (*pb.ListResponse, error) {

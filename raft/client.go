@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/satori/go.uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 
@@ -23,7 +24,7 @@ const (
 
 // Node
 type Node struct {
-	ID         int
+	ID         string
 	Host       string
 	Attributes map[string]string
 	Status     string
@@ -37,8 +38,7 @@ type Rafty struct {
 	Node
 
 	// List of all other Nodes in the network.
-	Nodes  []Node
-	server pb.RaftyServer
+	Nodes []Node
 }
 
 type RaftServer interface {
@@ -113,7 +113,7 @@ func (rafty *Rafty) AddNode(node Node) (Node, error) {
 		return node, err
 	}
 
-	node.ID = len(rafty.Nodes)
+	node.ID = uuid.NewV4()
 
 	// We need to run conn.Close() when that node dies
 	// or is removed somehow
