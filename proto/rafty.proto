@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package rafty;
+
+service Rafty {
+  rpc Join(JoinRequest) returns (JoinResponse) {}
+  rpc List(ListRequest) returns (ListResponse) {}
+  rpc RequestVote(RequestVoteRequest) returns (RequestVoteResponse) {}
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse) {}
+}
+
+message JoinRequest {
+  string host = 1;
+}
+
+message JoinResponse {
+  int32 id = 1;
+}
+
+message ListRequest {
+  string host = 1; 
+}
+
+message ListResponse {
+  repeated int32 nodes = 1 [packed=true];
+}
+
+message RequestVoteRequest {
+  string id = 1;
+}
+
+message RequestVoteResponse {
+  bool vote = 1;
+}
+
+message HeartbeatRequest {
+  string data = 1;
+}
+
+message HeartbeatResponse {
+  bool success = 1;
+}
