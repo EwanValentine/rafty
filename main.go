@@ -3,8 +3,6 @@ package main
 import (
 	"log"
 
-	"github.com/ewanvalentine/rafty/raft"
-
 	"gopkg.in/alecthomas/kingpin.v2"
 )
 
@@ -35,7 +33,7 @@ func main() {
 	case "join":
 		log.Printf("Adding node on address: %s", *joinHostFlag)
 
-		rafty := raft.Rafty{}
+		rafty := Rafty{}
 		rafty.Status = Follower
 		rafty.Votes = 0
 		rafty.Join(*joinHostFlag, *joinLeaderFlag)
@@ -44,7 +42,7 @@ func main() {
 	case "start":
 
 		// Start server
-		rafty := raft.Rafty{}
+		rafty := Rafty{}
 		rafty.Status = Leader
 		rafty.Votes = 0
 		rafty.Nodes = make([]Node, 0)
