@@ -19,6 +19,8 @@ const (
 	Candidate = "Candidate"
 	Follower  = "Follower"
 	Leader    = "Leader"
+
+	TimeoutThreshold = 2
 )
 
 // Node
@@ -81,6 +83,7 @@ func (rafty *Rafty) Start(host string) {
 	// Only followers should have a timer
 	if rafty.Status == Follower {
 		election := make(chan Node)
+		log.Println("Testing 123")
 		rafty.Timer(election)
 		rafty.ElectionListener(election)
 	}
@@ -99,13 +102,12 @@ func (rafty *Rafty) Timer(election chan<- Node) {
 		for {
 			select {
 			case <-timer:
-				rafty.Node.Timeout = rafty.Node.Timeout - 1
-
-				// If the new timeout value is 0,
-				// time for an election
+				log.Printf("Timer %d \n", rafty.Node.Timeout)
 				if rafty.Node.Timeout == 0 {
 					election <- rafty.Node
+					return
 				}
+				rafty.Node.Timeout = rafty.Node.Timeout - 1
 			}
 		}
 	}()
@@ -117,7 +119,11 @@ func (rafty *Rafty) ElectionListener(election <-chan Node) {
 		for {
 			select {
 			case node := <-election:
-				rafty.StartElection(node)
+				rafty.Node.Status = Candidate
+				err := rafty.StartElection(node)
+				if err != nil {
+					log.Fatal("Failed to start election: %v", err)
+				}
 			}
 		}
 	}()
@@ -142,6 +148,7 @@ func (rafty *Rafty) StartElection(node Node) error {
 			return err
 		}
 		log.Println("Vote recieved: %b", resp.Vote)
+		rafty.Vote()
 	}
 	return nil
 }
@@ -204,6 +211,7 @@ func (rafty *Rafty) Vote() error {
 	// number may not add up. We need a better way to figure out
 	// the majority.
 	if rafty.Votes >= len(rafty.Nodes)-1 {
+		log.Printf("We have a new leader: %s \n", rafty.Node.ID)
 		rafty.Status = Leader
 	}
 

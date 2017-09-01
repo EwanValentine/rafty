@@ -20,7 +20,7 @@ func (s *server) List(ctx context.Context, req *pb.ListRequest) (*pb.ListRespons
 
 func (s *server) Heartbeat(ctx context.Context, req *pb.HeartbeatRequest) (*pb.HeartbeatResponse, error) {
 	s.rafty.mutex.Lock()
-	s.rafty.Timeout = 0
+	s.rafty.Timeout = TimeoutThreshold
 	// Sync data/logs here
 	s.rafty.mutex.Unlock()
 
