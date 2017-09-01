@@ -1,8 +1,6 @@
 package main
 
 import (
-	"time"
-
 	pb "github.com/ewanvalentine/rafty/proto"
 	"golang.org/x/net/context"
 )
@@ -22,7 +20,7 @@ func (s *server) List(ctx context.Context, req *pb.ListRequest) (*pb.ListRespons
 
 func (s *server) Heartbeat(ctx context.Context, req *pb.HeartbeatRequest) (*pb.HeartbeatResponse, error) {
 	s.rafty.mutex.Lock()
-	s.rafty.Timeout = time.Now()
+	s.rafty.Timeout = 0
 	// Sync data/logs here
 	s.rafty.mutex.Unlock()
 

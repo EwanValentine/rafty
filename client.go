@@ -27,7 +27,7 @@ type Node struct {
 	Host       string
 	Attributes map[string]string
 	Status     string
-	Timeout    time.Time
+	Timeout    int
 	Votes      int
 	client     pb.RaftyClient
 }
@@ -45,6 +45,9 @@ type RaftServer interface {
 	AddNode(node Node) (Node, error)
 	Vote() error
 	Heartbeat() error
+	Timer(election chan<- Node)
+	ElectionListener(election <-chan Node)
+	StartElection(node Node)
 }
 
 // Start -
@@ -75,11 +78,72 @@ func (rafty *Rafty) Start(host string) {
 		}()
 	}
 
+	// Only followers should have a timer
+	if rafty.Status == Follower {
+		election := make(chan Node)
+		rafty.Timer(election)
+		rafty.ElectionListener(election)
+	}
+
 	if err := s.Serve(lis); err != nil {
 		log.Fatalf("Failed to start master node server: %v", err)
 	}
 
 	log.Println("Started master node")
+}
+
+// Timer -
+func (rafty *Rafty) Timer(election chan<- Node) {
+	timer := time.Tick(1 * time.Second)
+	go func() {
+		for {
+			select {
+			case <-timer:
+				rafty.Node.Timeout = rafty.Node.Timeout - 1
+
+				// If the new timeout value is 0,
+				// time for an election
+				if rafty.Node.Timeout == 0 {
+					election <- rafty.Node
+				}
+			}
+		}
+	}()
+}
+
+// ElectionListener -
+func (rafty *Rafty) ElectionListener(election <-chan Node) {
+	go func() {
+		for {
+			select {
+			case node := <-election:
+				rafty.StartElection(node)
+			}
+		}
+	}()
+}
+
+// StartElection -
+func (rafty *Rafty) StartElection(node Node) error {
+
+	// Vote for self
+	err := rafty.Vote()
+	if err != nil {
+		return err
+	}
+
+	// This needs to be async
+	for _, node := range rafty.Nodes {
+		resp, err := node.client.RequestVote(
+			context.Background(),
+			&pb.RequestVoteRequest{Id: node.ID},
+		)
+		if err != nil {
+			return err
+		}
+		log.Println("Vote recieved: %b", resp.Vote)
+	}
+	return nil
 }
 
 // Join -
