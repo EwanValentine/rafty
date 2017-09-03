@@ -6,25 +6,42 @@ import (
 )
 
 var (
-	timerThreshold = 10
+	timerThreshold = 2
 )
 
-func getInstance(status string) Rafty {
-	rafty := Rafty{}
-	rafty.Status = status
-	rafty.Votes = 0
-	rafty.Nodes = make([]Node, 0)
-	rafty.Node.Timeout = timerThreshold
-	return rafty
-}
-
 func TestTimerStartsInFollowerMode(t *testing.T) {
-	instance := getInstance(Follower)
-	go instance.Start(":8000")
+	leader := Leader()
+	go leader.Start(":8000")
+	instance := Follower()
+	go func() {
+		instance.Join(":8001", ":8000")
+		instance.Start(":8001")
+	}()
 
 	time.Sleep(1 * time.Second)
 
 	if instance.Node.Timeout == timerThreshold {
 		t.Fail()
 	}
+
+	instance.quit <- true
+	leader.quit <- true
+}
+
+func TestCanAddNode(t *testing.T) {
+	leader := Leader()
+	instance := Follower()
+	go leader.Start(":8000")
+	leader.quit <- true
+
+	go func() {
+		instance.Join(":8001", ":8000")
+		instance.Start(":8001")
+	}()
+
+	if leader.Nodes[0].ID != instance.Node.ID {
+		t.Fail()
+	}
+	instance.quit <- true
+	leader.quit <- true
 }

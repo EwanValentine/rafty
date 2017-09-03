@@ -7,10 +7,24 @@ service Rafty {
   rpc List(ListRequest) returns (ListResponse) {}
   rpc RequestVote(RequestVoteRequest) returns (RequestVoteResponse) {}
   rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse) {}
+  rpc AnnounceLeader(AnnounceLeaderRequest) returns (AnnounceLeaderResponse) {}
+}
+
+message Attribute {
+  string key = 1;
+  string value = 2;
+}
+
+message Node {
+  string id = 1;
+  string host = 2;
+  repeated Attribute attributes = 3;
+  string status = 4;
 }
 
 message JoinRequest {
-  string host = 1;
+  string id = 1;
+  string host = 2;
 }
 
 message JoinResponse {
@@ -34,9 +48,28 @@ message RequestVoteResponse {
 }
 
 message HeartbeatRequest {
-  string data = 1;
+  string leader = 1;
+  string data = 2;
+  repeated Node nodes = 3;
 }
 
 message HeartbeatResponse {
   bool success = 1;
+}
+
+message AnnounceLeaderRequest {
+  string id = 1;
+}
+
+message AnnounceLeaderResponse {
+
+  // Consent refers to `consent given`
+  // we can define certain parameters
+  // in future, such as aspects of the 
+  // new leader which could be incompatible
+  // with one or more followers, which would
+  // allow the node to die instead of connecting
+  // I.e. can some nodes only talk to leaders
+  // on a certain network range or partition?
+  bool consent = 1;
 }

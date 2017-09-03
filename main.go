@@ -33,23 +33,14 @@ func main() {
 	case "join":
 		log.Printf("Adding node on address: %s", *joinHostFlag)
 
-		rafty := Rafty{}
-		rafty.Status = Follower
-		rafty.Votes = 0
-		rafty.Timeout = TimeoutThreshold
+		rafty := Follower()
 		rafty.Join(*joinHostFlag, *joinLeaderFlag)
 		rafty.Start(*joinHostFlag)
 
 	case "start":
 
 		// Start server
-		rafty := Rafty{}
-		rafty.Status = Leader
-		rafty.Votes = 0
-		rafty.Timeout = TimeoutThreshold
-		rafty.Nodes = make([]Node, 0)
-
-		log.Printf("Starting a node on address: %s", *startHostFlag)
+		rafty := Leader()
 		rafty.Start(*startHostFlag)
 	}
 }
