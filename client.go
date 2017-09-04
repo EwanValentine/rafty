@@ -401,6 +401,7 @@ func convertNodesToProtoNodes(nodes []Node) []*pb.Node {
 // Heartbeat - poll all connected nodes with data
 func (rafty *Rafty) Heartbeat() error {
 	log.Println("Connected nodes: ", len(rafty.Nodes))
+	log.Println(rafty.Nodes)
 	for _, node := range rafty.Nodes {
 		_, err := node.client.Heartbeat(
 			context.Background(),
