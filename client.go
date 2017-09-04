@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log"
 	"net"
+	"os"
 	"sync"
 	"time"
 
@@ -43,8 +44,9 @@ type Rafty struct {
 	LeaderConn   *grpc.ClientConn
 
 	// List of all other Nodes in the network.
-	Nodes []Node
-	quit  chan bool
+	Nodes     []Node
+	quit      chan bool
+	connected bool
 }
 
 type RaftServer interface {
@@ -113,11 +115,23 @@ func (rafty *Rafty) Start(host string) {
 			case <-rafty.quit:
 				log.Println("Gracefully quitting...")
 				s.GracefulStop()
+				rafty.connected = false
+				rafty.LeaderConn.Close()
+				os.Exit(0)
 			}
 		}
 	}()
 
+	log.Printf(
+		"Starting node as %s on host %s",
+		rafty.Node.Status,
+		host,
+	)
+
+	rafty.connected = true
+
 	if err := s.Serve(lis); err != nil {
+		rafty.connected = false
 		log.Fatalf("Failed to start master node server: %v", err)
 	}
 }
@@ -126,10 +140,6 @@ func (rafty *Rafty) Start(host string) {
 // I.e new status and triggers the heartbeat process to other nodes
 func (rafty *Rafty) RegisterLeader() {
 	log.Printf("Node %s leader, performing heartbeat duties \n", rafty.Node.ID)
-
-	rafty.ReconnectAllNodes()
-
-	log.Println(rafty.Nodes)
 
 	for _, node := range rafty.Nodes {
 		_, err := node.client.AnnounceLeader(
@@ -157,7 +167,6 @@ func (rafty *Rafty) RegisterLeader() {
 		for {
 			select {
 			case <-heartbeat:
-				log.Println("test")
 				err := rafty.Heartbeat()
 				if err != nil {
 					log.Printf("Heartbeat error: %v", err)
@@ -284,14 +293,12 @@ func (rafty *Rafty) isSelf(node Node) bool {
 
 // AddNode -
 func (rafty *Rafty) AddNode(node Node) (Node, error) {
-
+	rafty.mutex.Lock()
 	node, err := rafty.ConnectToNode(node)
 
 	if err != nil {
 		return node, err
 	}
-
-	rafty.mutex.Lock()
 	if !rafty.isDuplicate(node) && !rafty.isSelf(node) {
 		rafty.Nodes = append(rafty.Nodes, node)
 	}
@@ -302,6 +309,12 @@ func (rafty *Rafty) AddNode(node Node) (Node, error) {
 
 // ConnectToNode -
 func (rafty *Rafty) ConnectToNode(node Node) (Node, error) {
+
+	log.Printf(
+		"Connecting to new node %s on %s",
+		node.ID,
+		node.Host,
+	)
 
 	// Form a connection to the new node
 	conn, err := grpc.Dial(node.Host, grpc.WithInsecure())
@@ -315,8 +328,8 @@ func (rafty *Rafty) ConnectToNode(node Node) (Node, error) {
 	return node, nil
 }
 
-// ReconnectAllNodes -
-func (rafty *Rafty) ReconnectAllNodes() {
+// reconnectAllNodes -
+func (rafty *Rafty) reconnectAllNodes() {
 	var nodes []Node
 	for _, node := range rafty.Nodes {
 		cNode, _ := rafty.ConnectToNode(node)

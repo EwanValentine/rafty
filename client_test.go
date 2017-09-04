@@ -1,12 +1,13 @@
 package main
 
 import (
+	"log"
 	"testing"
 	"time"
 )
 
 var (
-	timerThreshold = 2
+	timerThreshold = 3
 )
 
 func TestTimerStartsInFollowerMode(t *testing.T) {
@@ -29,15 +30,29 @@ func TestTimerStartsInFollowerMode(t *testing.T) {
 }
 
 func TestCanAddNode(t *testing.T) {
+	wait := make(chan bool)
 	leader := Leader()
-	instance := Follower()
 	go leader.Start(":8000")
-	leader.quit <- true
-
+	instance := Follower()
 	go func() {
-		instance.Join(":8001", ":8000")
-		instance.Start(":8001")
+		for {
+			if leader.connected == true {
+				wait <- true
+				return
+			}
+		}
 	}()
+	go func() {
+		for {
+			select {
+			case <-wait:
+				instance.Join(":8001", ":8000")
+				instance.Start(":8001")
+			}
+		}
+	}()
+
+	log.Println(leader.Nodes)
 
 	if leader.Nodes[0].ID != instance.Node.ID {
 		t.Fail()
