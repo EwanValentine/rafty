@@ -141,6 +141,10 @@ func (rafty *Rafty) Start(host string) {
 func (rafty *Rafty) RegisterLeader() {
 	log.Printf("Node %s leader, performing heartbeat duties \n", rafty.Node.ID)
 
+	rafty.reconnectAllNodes()
+
+	log.Println(rafty.Nodes)
+
 	for _, node := range rafty.Nodes {
 		_, err := node.client.AnnounceLeader(
 			context.Background(),
@@ -229,12 +233,11 @@ func (rafty *Rafty) StartElection(node Node) error {
 		return err
 	}
 
-	// Remove the previous leader from list of nodes
-	// to prevent further communication with a dead node
-	rafty.RemoveNode(rafty.Leader)
+	rafty.reconnectAllNodes()
 
 	// This needs to be async
 	for _, node := range rafty.Nodes {
+
 		resp, err := node.client.RequestVote(
 			context.Background(),
 			&pb.RequestVoteRequest{Id: node.ID},
@@ -304,6 +307,8 @@ func (rafty *Rafty) AddNode(node Node) (Node, error) {
 	}
 	rafty.mutex.Unlock()
 
+	log.Println(rafty.Nodes)
+
 	return node, nil
 }
 
@@ -335,7 +340,9 @@ func (rafty *Rafty) reconnectAllNodes() {
 		cNode, _ := rafty.ConnectToNode(node)
 		nodes = append(nodes, cNode)
 	}
+	rafty.mutex.Lock()
 	rafty.Nodes = nodes
+	rafty.mutex.Unlock()
 }
 
 // RemoveNode -

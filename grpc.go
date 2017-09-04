@@ -36,7 +36,7 @@ func (s *server) Heartbeat(ctx context.Context, req *pb.HeartbeatRequest) (*pb.H
 	s.rafty.Leader = req.Leader
 
 	// Here we need to tell the follower about
-	// all of the other nodes
+	// all of the other nodes.
 	s.rafty.Nodes = convertProtoNodesToNodes(req.Nodes)
 
 	// Sync data/logs here
