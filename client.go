@@ -10,6 +10,7 @@ import (
 
 	"github.com/satori/go.uuid"
 	"golang.org/x/net/context"
+	"golang.org/x/sync/syncmap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 
@@ -22,18 +23,29 @@ const (
 	LeaderStatus    = "Leader"
 
 	TimeoutThreshold = 2
+
+	TestMode = "Test"
 )
+
+type Attributes struct {
+	sm syncmap.Map
+}
+
+type Data struct {
+	sm syncmap.Map
+}
 
 // Node
 type Node struct {
-	ID         string
-	Host       string
-	Attributes map[string]string
-	Status     string
-	Timeout    int
-	Votes      int
-	client     pb.RaftyClient
-	conn       *grpc.ClientConn
+	ID   string
+	Host string
+	Attributes
+	Status  string
+	Timeout int
+	Votes   int
+	client  pb.RaftyClient
+	conn    *grpc.ClientConn
+	mode    string
 }
 
 type Rafty struct {
@@ -47,6 +59,8 @@ type Rafty struct {
 	Nodes     []Node
 	quit      chan bool
 	connected bool
+
+	Data
 }
 
 type RaftServer interface {
@@ -54,17 +68,14 @@ type RaftServer interface {
 	AddNode(node Node) (Node, error)
 	RemoveNode(id string)
 	Vote() error
-	Heartbeat() error
 	Timer(election chan<- Node)
-	ElectionListener(election <-chan Node)
-	StartElection(node Node)
-	RegisterFollower()
-	RegisterLeader()
 }
 
+// Leader - create a node in leader mode
 func Leader() *Rafty {
 	return &Rafty{
 		Nodes: make([]Node, 0),
+		Data:  Data{syncmap.Map{}},
 		Node: Node{
 			ID:      uuid.NewV4().String(),
 			Timeout: TimeoutThreshold,
@@ -74,9 +85,11 @@ func Leader() *Rafty {
 	}
 }
 
+// Follower - create a node in follower mode
 func Follower() *Rafty {
 	return &Rafty{
 		Nodes: make([]Node, 0),
+		Data:  Data{syncmap.Map{}},
 		Node: Node{
 			ID:      uuid.NewV4().String(),
 			Timeout: TimeoutThreshold,
@@ -86,7 +99,9 @@ func Follower() *Rafty {
 	}
 }
 
-// Start -
+// Start - start the node, including gRPC server
+// also spins up mode specific processes, such as
+// the heartbeat process in leader mode
 func (rafty *Rafty) Start(host string) {
 	lis, err := net.Listen("tcp", host)
 	if err != nil {
@@ -101,12 +116,12 @@ func (rafty *Rafty) Start(host string) {
 
 	// Only a leader should perform a heartbeat
 	if rafty.Status == LeaderStatus {
-		rafty.RegisterLeader()
+		rafty.registerLeader()
 	}
 
 	// Only followers should have a timer
 	if rafty.Status == FollowerStatus {
-		rafty.RegisterFollower()
+		rafty.registerFollower()
 	}
 
 	go func() {
@@ -114,9 +129,8 @@ func (rafty *Rafty) Start(host string) {
 			select {
 			case <-rafty.quit:
 				log.Println("Gracefully quitting...")
-				s.GracefulStop()
 				rafty.connected = false
-				rafty.LeaderConn.Close()
+				s.GracefulStop()
 				os.Exit(0)
 			}
 		}
@@ -130,20 +144,24 @@ func (rafty *Rafty) Start(host string) {
 
 	rafty.connected = true
 
+	// Start gRPC server
 	if err := s.Serve(lis); err != nil {
 		rafty.connected = false
 		log.Fatalf("Failed to start master node server: %v", err)
 	}
 }
 
-// RegisterLeader - starts the current node in leadership mode
+// registerLeader - starts the current node in leadership mode
 // I.e new status and triggers the heartbeat process to other nodes
-func (rafty *Rafty) RegisterLeader() {
+func (rafty *Rafty) registerLeader() {
 	log.Printf("Node %s leader, performing heartbeat duties \n", rafty.Node.ID)
 
-	rafty.reconnectAllNodes()
+	// Start REST api to show data
+	go API(rafty)
 
-	log.Println(rafty.Nodes)
+	rafty.RemoveNode(rafty.Node.ID)
+
+	rafty.reconnectAllNodes()
 
 	for _, node := range rafty.Nodes {
 		_, err := node.client.AnnounceLeader(
@@ -180,13 +198,13 @@ func (rafty *Rafty) RegisterLeader() {
 	}()
 }
 
-// RegisterFollower - starts node in follower mode, this starts
+// registerFollower - starts node in follower mode, this starts
 // a listener for heartbeats from the leader more
-func (rafty *Rafty) RegisterFollower() {
+func (rafty *Rafty) registerFollower() {
 	log.Println("Node is a follower, listening for heartbeats")
 	election := make(chan Node)
 	rafty.Timer(election)
-	rafty.ElectionListener(election)
+	rafty.electionListener(election)
 }
 
 // Timer - this starts the countdown timer for
@@ -208,14 +226,14 @@ func (rafty *Rafty) Timer(election chan<- Node) {
 	}()
 }
 
-// ElectionListener -
-func (rafty *Rafty) ElectionListener(election <-chan Node) {
+// electionListener -
+func (rafty *Rafty) electionListener(election <-chan Node) {
 	go func() {
 		for {
 			select {
 			case node := <-election:
 				rafty.Node.Status = CandidateStatus
-				err := rafty.StartElection(node)
+				err := rafty.startElection(node)
 				if err != nil {
 					log.Fatal("Failed to start election: %v", err)
 				}
@@ -224,8 +242,8 @@ func (rafty *Rafty) ElectionListener(election <-chan Node) {
 	}()
 }
 
-// StartElection -
-func (rafty *Rafty) StartElection(node Node) error {
+// startElection -
+func (rafty *Rafty) startElection(node Node) error {
 
 	// Vote for self
 	err := rafty.Vote()
@@ -237,7 +255,10 @@ func (rafty *Rafty) StartElection(node Node) error {
 
 	// This needs to be async
 	for _, node := range rafty.Nodes {
-
+		if rafty.mode == TestMode {
+			rafty.Vote()
+			return nil
+		}
 		resp, err := node.client.RequestVote(
 			context.Background(),
 			&pb.RequestVoteRequest{Id: node.ID},
@@ -245,7 +266,7 @@ func (rafty *Rafty) StartElection(node Node) error {
 		if err != nil {
 			return err
 		}
-		log.Printf("Vote recieved: %b \n", resp.Vote)
+		log.Println("Vote recieved")
 		if resp.Vote == true {
 			rafty.Vote()
 		}
@@ -254,6 +275,8 @@ func (rafty *Rafty) StartElection(node Node) error {
 }
 
 // Join - sets leader node and connects to it
+// this method should be used when starting a node
+// as a follower to an existing leader.
 func (rafty *Rafty) Join(host, leader string) error {
 	log.Printf("Connecting to leader: %s", leader)
 
@@ -297,23 +320,24 @@ func (rafty *Rafty) isSelf(node Node) bool {
 // AddNode -
 func (rafty *Rafty) AddNode(node Node) (Node, error) {
 	rafty.mutex.Lock()
-	node, err := rafty.ConnectToNode(node)
 
-	if err != nil {
-		return node, err
+	if rafty.mode != TestMode {
+		node, err := rafty.connectToNode(node)
+		if err != nil {
+			return node, err
+		}
 	}
+
 	if !rafty.isDuplicate(node) && !rafty.isSelf(node) {
 		rafty.Nodes = append(rafty.Nodes, node)
 	}
 	rafty.mutex.Unlock()
 
-	log.Println(rafty.Nodes)
-
 	return node, nil
 }
 
-// ConnectToNode -
-func (rafty *Rafty) ConnectToNode(node Node) (Node, error) {
+// connectToNode -
+func (rafty *Rafty) connectToNode(node Node) (Node, error) {
 
 	log.Printf(
 		"Connecting to new node %s on %s",
@@ -335,9 +359,18 @@ func (rafty *Rafty) ConnectToNode(node Node) (Node, error) {
 
 // reconnectAllNodes -
 func (rafty *Rafty) reconnectAllNodes() {
+	if rafty.mode == TestMode {
+		return
+	}
 	var nodes []Node
 	for _, node := range rafty.Nodes {
-		cNode, _ := rafty.ConnectToNode(node)
+		cNode, err := rafty.connectToNode(node)
+		if err != nil {
+
+			// If can't connect, node is probably dead,
+			// so don't include in list of nodes
+			continue
+		}
 		nodes = append(nodes, cNode)
 	}
 	rafty.mutex.Lock()
@@ -350,10 +383,10 @@ func (rafty *Rafty) RemoveNode(id string) {
 	rafty.mutex.Lock()
 	for k, v := range rafty.Nodes {
 		if v.ID == id {
-			rafty.mutex.Lock()
-			rafty.conn.Close()
+			if rafty.mode != TestMode {
+				rafty.conn.Close()
+			}
 			rafty.Nodes = append(rafty.Nodes[:k], rafty.Nodes[k+1:]...)
-			rafty.mutex.Unlock()
 		}
 	}
 	rafty.mutex.Unlock()
@@ -379,7 +412,7 @@ func (rafty *Rafty) Vote() error {
 		rafty.mutex.Lock()
 		rafty.Status = LeaderStatus
 		rafty.mutex.Unlock()
-		rafty.RegisterLeader()
+		rafty.registerLeader()
 	}
 
 	return nil
@@ -398,22 +431,50 @@ func convertNodesToProtoNodes(nodes []Node) []*pb.Node {
 	return pbNodes
 }
 
+func parseData(data Data) []*pb.Data {
+	var newData []*pb.Data
+	newData := make(
+	data.sm.Range(func(key, value interface{}) bool {
+		newData = append(newData, &pb.Data{
+			Key:   key.(string),
+			Value: value.(string),
+		})
+		return true
+	})
+	return newData
+}
+
 // Heartbeat - poll all connected nodes with data
 func (rafty *Rafty) Heartbeat() error {
 	log.Println("Connected nodes: ", len(rafty.Nodes))
-	log.Println(rafty.Nodes)
+
+	// For each follower node
 	for _, node := range rafty.Nodes {
+
+		// Convert syncmap data into protobuf data format
+		data := parseData(rafty.Data)
+		log.Println(data)
+
+		// Send heartbeat to node with meta data
+		// and node data
 		_, err := node.client.Heartbeat(
 			context.Background(),
 			&pb.HeartbeatRequest{
 				Leader: rafty.Node.ID,
-				Data:   "test",
+				Data:   data,
 				Nodes:  convertNodesToProtoNodes(rafty.Nodes),
 			},
 		)
+
 		if err != nil {
+			rafty.RemoveNode(node.ID)
 			log.Printf("Dead node: %d - %v\n", node.ID, err)
 		}
 	}
 	return nil
+}
+
+// Commit - commits data to be stores across all nodes
+func (rafty *Rafty) Commit(key string, value interface{}) {
+	rafty.Data.sm.Store(key, value)
 }

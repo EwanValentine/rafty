@@ -1,9 +1,7 @@
 package main
 
 import (
-	"log"
 	"testing"
-	"time"
 )
 
 var (
@@ -11,52 +9,85 @@ var (
 )
 
 func TestTimerStartsInFollowerMode(t *testing.T) {
-	leader := Leader()
-	go leader.Start(":8000")
 	instance := Follower()
-	go func() {
-		instance.Join(":8001", ":8000")
-		instance.Start(":8001")
-	}()
-
-	time.Sleep(1 * time.Second)
-
 	if instance.Node.Timeout == timerThreshold {
 		t.Fail()
 	}
-
-	instance.quit <- true
-	leader.quit <- true
 }
 
 func TestCanAddNode(t *testing.T) {
-	wait := make(chan bool)
 	leader := Leader()
-	go leader.Start(":8000")
-	instance := Follower()
-	go func() {
-		for {
-			if leader.connected == true {
-				wait <- true
-				return
-			}
-		}
-	}()
-	go func() {
-		for {
-			select {
-			case <-wait:
-				instance.Join(":8001", ":8000")
-				instance.Start(":8001")
-			}
-		}
-	}()
+	leader.mode = TestMode
+	_, err := leader.AddNode(Node{ID: "abc123"})
 
-	log.Println(leader.Nodes)
-
-	if leader.Nodes[0].ID != instance.Node.ID {
+	if err != nil {
 		t.Fail()
 	}
-	instance.quit <- true
-	leader.quit <- true
+
+	if leader.Nodes[0].ID != "abc123" {
+		t.Fail()
+	}
+}
+
+func TestCanRemoveNode(t *testing.T) {
+	leader := Leader()
+	leader.mode = TestMode
+	leader.AddNode(Node{ID: "abc123"})
+	leader.RemoveNode("abc123")
+
+	if len(leader.Nodes) > 0 {
+		t.Fail()
+	}
+}
+
+func TestCantAddSelf(t *testing.T) {
+	leader := Leader()
+	leader.mode = TestMode
+	_, err := leader.AddNode(leader.Node)
+	if err != nil {
+		t.Fail()
+	}
+
+	if len(leader.Nodes) > 0 {
+		t.Fail()
+	}
+}
+
+func TestCantAddDuplicate(t *testing.T) {
+	leader := Leader()
+	leader.mode = TestMode
+	node := Node{ID: "abc"}
+	leader.AddNode(node)
+	leader.AddNode(node)
+
+	if len(leader.Nodes) > 1 {
+		t.Fail()
+	}
+}
+
+func TestCanTriggerElection(t *testing.T) {
+	election := make(chan Node)
+	follower := Follower()
+	follower.Timeout = 0
+	follower.Timer(election)
+	done := <-election
+
+	if done.ID == "" {
+		t.Fail()
+	}
+}
+
+func TestCanCommitData(t *testing.T) {
+	leader := Leader()
+	leader.Commit("testing", 123)
+
+	data, ok := leader.Data.sm.Load("testing")
+
+	if !ok {
+		t.Fail()
+	}
+
+	if data != 123 {
+		t.Fail()
+	}
 }

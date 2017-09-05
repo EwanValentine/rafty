@@ -18,8 +18,8 @@ var (
 	joinLeaderFlag = join.Flag("leader", "Leader address").String()
 )
 
-// rafty create -host 127.0.0.1:8989
-// rafty join -host 127.0.0.1:8989
+// rafty create --host=127.0.0.1:8989
+// rafty join --host=127.0.0.1:8990 --leader=:8989
 // rafty list
 func main() {
 
@@ -42,5 +42,6 @@ func main() {
 		// Start server
 		rafty := Leader()
 		rafty.Start(*startHostFlag)
+		rafty.Commit("Test", "This is just a test")
 	}
 }

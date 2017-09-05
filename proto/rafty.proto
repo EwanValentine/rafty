@@ -15,6 +15,11 @@ message Attribute {
   string value = 2;
 }
 
+message Data {
+  string key = 1;
+  string value = 2;
+}
+
 message Node {
   string id = 1;
   string host = 2;
@@ -49,7 +54,7 @@ message RequestVoteResponse {
 
 message HeartbeatRequest {
   string leader = 1;
-  string data = 2;
+  repeated Data data = 2;
   repeated Node nodes = 3;
 }
 

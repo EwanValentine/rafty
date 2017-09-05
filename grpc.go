@@ -30,14 +30,35 @@ func convertProtoNodesToNodes(pbNodes []*pb.Node) []Node {
 	return nodes
 }
 
+// When synchronising node registry across other nodes
+// we need to exclude the current node from that list
+func filterSelf(self Node, nodes []Node) []Node {
+	var filtered []Node
+	for _, node := range nodes {
+		if node.ID != self.ID {
+			filtered = append(filtered, node)
+		}
+	}
+	return filtered
+}
+
+func (s *server) encodeData(data []*pb.Data) {
+	for _, v := range data {
+		s.rafty.Data.sm.Store(v.Key, v.Value)
+	}
+}
+
 func (s *server) Heartbeat(ctx context.Context, req *pb.HeartbeatRequest) (*pb.HeartbeatResponse, error) {
 	s.rafty.mutex.Lock()
 	s.rafty.Timeout = TimeoutThreshold
 	s.rafty.Leader = req.Leader
 
+	// Sync data
+	s.encodeData(req.Data)
+
 	// Here we need to tell the follower about
 	// all of the other nodes.
-	s.rafty.Nodes = convertProtoNodesToNodes(req.Nodes)
+	s.rafty.Nodes = filterSelf(s.rafty.Node, convertProtoNodesToNodes(req.Nodes))
 
 	// Sync data/logs here
 	s.rafty.mutex.Unlock()
@@ -57,7 +78,7 @@ func (s *server) AnnounceLeader(ctx context.Context, req *pb.AnnounceLeaderReque
 
 	// Establish new connection with the leader
 	s.rafty.mutex.Unlock()
-	s.rafty.RegisterFollower()
+	s.rafty.registerFollower()
 
 	return &pb.AnnounceLeaderResponse{Consent: true}, nil
 }
