@@ -15,11 +15,6 @@ message Attribute {
   string value = 2;
 }
 
-message Data {
-  string key = 1;
-  string value = 2;
-}
-
 message Node {
   string id = 1;
   string host = 2;
@@ -37,7 +32,7 @@ message JoinResponse {
 }
 
 message ListRequest {
-  string host = 1; 
+  string host = 1;
 }
 
 message ListResponse {
@@ -54,7 +49,7 @@ message RequestVoteResponse {
 
 message HeartbeatRequest {
   string leader = 1;
-  repeated Data data = 2;
+  map<string, string> data = 2;
   repeated Node nodes = 3;
 }
 
@@ -70,7 +65,7 @@ message AnnounceLeaderResponse {
 
   // Consent refers to `consent given`
   // we can define certain parameters
-  // in future, such as aspects of the 
+  // in future, such as aspects of the
   // new leader which could be incompatible
   // with one or more followers, which would
   // allow the node to die instead of connecting

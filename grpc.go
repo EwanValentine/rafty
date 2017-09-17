@@ -42,19 +42,10 @@ func filterSelf(self Node, nodes []Node) []Node {
 	return filtered
 }
 
-func (s *server) encodeData(data []*pb.Data) {
-	for _, v := range data {
-		s.rafty.Data.sm.Store(v.Key, v.Value)
-	}
-}
-
 func (s *server) Heartbeat(ctx context.Context, req *pb.HeartbeatRequest) (*pb.HeartbeatResponse, error) {
 	s.rafty.mutex.Lock()
 	s.rafty.Timeout = TimeoutThreshold
 	s.rafty.Leader = req.Leader
-
-	// Sync data
-	s.encodeData(req.Data)
 
 	// Here we need to tell the follower about
 	// all of the other nodes.

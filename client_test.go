@@ -79,15 +79,11 @@ func TestCanTriggerElection(t *testing.T) {
 
 func TestCanCommitData(t *testing.T) {
 	leader := Leader()
-	leader.Commit("testing", 123)
+	leader.Commit("testing", "123")
 
-	data, ok := leader.Data.sm.Load("testing")
+	data := leader.Data["testing"]
 
-	if !ok {
-		t.Fail()
-	}
-
-	if data != 123 {
+	if data != "123" {
 		t.Fail()
 	}
 }

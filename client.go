@@ -10,7 +10,6 @@ import (
 
 	"github.com/satori/go.uuid"
 	"golang.org/x/net/context"
-	"golang.org/x/sync/syncmap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 
@@ -27,25 +26,17 @@ const (
 	TestMode = "Test"
 )
 
-type Attributes struct {
-	sm syncmap.Map
-}
-
-type Data struct {
-	sm syncmap.Map
-}
-
 // Node
 type Node struct {
-	ID   string
-	Host string
-	Attributes
-	Status  string
-	Timeout int
-	Votes   int
-	client  pb.RaftyClient
-	conn    *grpc.ClientConn
-	mode    string
+	ID         string
+	Host       string
+	Attributes map[string]interface{}
+	Status     string
+	Timeout    int
+	Votes      int
+	client     pb.RaftyClient
+	conn       *grpc.ClientConn
+	mode       string
 }
 
 type Rafty struct {
@@ -60,7 +51,7 @@ type Rafty struct {
 	quit      chan bool
 	connected bool
 
-	Data
+	Data map[string]string
 }
 
 type RaftServer interface {
@@ -75,7 +66,7 @@ type RaftServer interface {
 func Leader() *Rafty {
 	return &Rafty{
 		Nodes: make([]Node, 0),
-		Data:  Data{syncmap.Map{}},
+		Data:  make(map[string]string, 0),
 		Node: Node{
 			ID:      uuid.NewV4().String(),
 			Timeout: TimeoutThreshold,
@@ -89,7 +80,7 @@ func Leader() *Rafty {
 func Follower() *Rafty {
 	return &Rafty{
 		Nodes: make([]Node, 0),
-		Data:  Data{syncmap.Map{}},
+		Data:  make(map[string]string, 0),
 		Node: Node{
 			ID:      uuid.NewV4().String(),
 			Timeout: TimeoutThreshold,
@@ -329,7 +320,9 @@ func (rafty *Rafty) AddNode(node Node) (Node, error) {
 	}
 
 	if !rafty.isDuplicate(node) && !rafty.isSelf(node) {
+		log.Println("adding node")
 		rafty.Nodes = append(rafty.Nodes, node)
+		log.Println(rafty.Nodes)
 	}
 	rafty.mutex.Unlock()
 
@@ -431,19 +424,6 @@ func convertNodesToProtoNodes(nodes []Node) []*pb.Node {
 	return pbNodes
 }
 
-func parseData(data Data) []*pb.Data {
-	var newData []*pb.Data
-	newData := make(
-	data.sm.Range(func(key, value interface{}) bool {
-		newData = append(newData, &pb.Data{
-			Key:   key.(string),
-			Value: value.(string),
-		})
-		return true
-	})
-	return newData
-}
-
 // Heartbeat - poll all connected nodes with data
 func (rafty *Rafty) Heartbeat() error {
 	log.Println("Connected nodes: ", len(rafty.Nodes))
@@ -451,30 +431,26 @@ func (rafty *Rafty) Heartbeat() error {
 	// For each follower node
 	for _, node := range rafty.Nodes {
 
-		// Convert syncmap data into protobuf data format
-		data := parseData(rafty.Data)
-		log.Println(data)
-
 		// Send heartbeat to node with meta data
 		// and node data
 		_, err := node.client.Heartbeat(
 			context.Background(),
 			&pb.HeartbeatRequest{
 				Leader: rafty.Node.ID,
-				Data:   data,
+				Data:   rafty.Data,
 				Nodes:  convertNodesToProtoNodes(rafty.Nodes),
 			},
 		)
 
 		if err != nil {
 			rafty.RemoveNode(node.ID)
-			log.Printf("Dead node: %d - %v\n", node.ID, err)
+			log.Printf("Dead node: %s - %v\n", node.ID, err)
 		}
 	}
 	return nil
 }
 
 // Commit - commits data to be stores across all nodes
-func (rafty *Rafty) Commit(key string, value interface{}) {
-	rafty.Data.sm.Store(key, value)
+func (rafty *Rafty) Commit(key string, value string) {
+	rafty.Data[key] = value
 }
